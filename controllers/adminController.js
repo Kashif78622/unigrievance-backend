@@ -209,7 +209,9 @@ exports.toggleAdminStatus = async (req, res) => {
         const oldStatus = admin.isActive;
         admin.isActive = !admin.isActive;
         await admin.save();
-
+        if (global.notificationService) {
+            await global.notificationService.notifyUserToggled(admin, admin.isActive, req.user);
+        }
         // ✅ Log activity - Admin Enable/Disable
         const logger = getLogger(req);
         const action = admin.isActive ? "ADMIN_ENABLE" : "ADMIN_DISABLE";
@@ -237,6 +239,7 @@ exports.toggleAdminStatus = async (req, res) => {
         });
     }
 };
+
 exports.sendEmailToAdmin = async (req, res) => {
     try {
         const { adminId, to, subject, message, emailType } = req.body;

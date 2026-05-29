@@ -1,3 +1,4 @@
+// server.js - Complete updated version
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -17,7 +18,10 @@ const studentRoutes = require("./routes/studentRoutes");
 const complaintRoutes = require("./routes/complaintRoutes");
 const activityRoutes = require("./routes/activityRoutes");
 const emailFormatRoutes = require("./routes/emailFormatRoutes");
+const notificationRoutes = require("./routes/notificationRoutes"); // ADD THIS
+
 const { attachLogger } = require("./middleware/activityMiddleware");
+const NotificationService = require("./services/notificationService");
 
 const app = express();
 
@@ -41,6 +45,8 @@ app.use("/api/students", studentRoutes);
 app.use("/api/complaints", complaintRoutes);
 app.use("/api/activity", activityRoutes);
 app.use("/api/settings/email-format", emailFormatRoutes);
+app.use("/api/notifications", notificationRoutes); // ADD THIS
+
 // STATIC FILES
 app.use("/uploads", express.static("uploads"));
 
@@ -70,6 +76,10 @@ const io = new Server(server, {
 
 // Make io available globally
 global.io = io;
+
+// Initialize notification service with io
+const notificationService = new NotificationService(io);
+global.notificationService = notificationService;
 
 // Socket authentication middleware
 io.use(async (socket, next) => {
@@ -168,4 +178,5 @@ global.emitComplaintDelete = emitComplaintDelete;
 server.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📡 Socket.IO server ready`);
+    console.log(`🔔 Notification service initialized`);
 });

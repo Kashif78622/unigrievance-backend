@@ -221,7 +221,9 @@ exports.toggleDepartmentAdminStatus = async (req, res) => {
         const oldStatus = departmentadmin.isActive;
         departmentadmin.isActive = !departmentadmin.isActive;
         await departmentadmin.save();
-
+        if (global.notificationService) {
+            await global.notificationService.notifyUserToggled(admin, admin.isActive, req.user);
+        }
         // ✅ Log activity - Department Admin Enable/Disable
         const logger = getLogger(req);
         const action = departmentadmin.isActive ? "DEPARTMENT_ADMIN_ENABLE" : "DEPARTMENT_ADMIN_DISABLE";

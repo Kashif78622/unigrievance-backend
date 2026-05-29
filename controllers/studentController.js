@@ -127,7 +127,9 @@ exports.toggleStudent = async (req, res) => {
         const oldStatus = student.isActive;
         student.isActive = !student.isActive;
         await student.save();
-
+        if (global.notificationService) {
+            await global.notificationService.notifyUserToggled(admin, admin.isActive, req.user);
+        }
         // Log activity
         const logger = getLogger(req);
         const action = student.isActive ? "STUDENT_ENABLE" : "STUDENT_DISABLE";

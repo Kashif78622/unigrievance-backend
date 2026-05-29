@@ -9,6 +9,7 @@ const User = require("../models/User");
 const ReadStatus = require("../models/ReadStatus");
 const axios = require("axios");
 const ActivityLogger = require("../utils/activityLogger");
+const NotificationService = require("../services/notificationService");
 
 const getLogger = (req) => new ActivityLogger(req);
 
@@ -909,7 +910,9 @@ exports.takeAction = async (req, res) => {
                 changedBy: userId,
                 changedAt: new Date()
             });
-
+            if (statusChanged && global.notificationService) {
+                await global.notificationService.notifyComplaintStatusChange(complaint, previousStatus, status, req.user);
+            }
             // Log the enable/disable action
             const logger = getLogger(req);
             const action = isActiveBool ? "COMPLAINT_ENABLE" : "COMPLAINT_DISABLE";
@@ -1111,7 +1114,9 @@ exports.createComplaint = async (req, res) => {
             priority,
             user: req.user.id
         });
-
+        if (global.notificationService) {
+            await global.notificationService.notifyComplaintCreated(complaint, req.user);
+        }
         await ComplaintStats.create({
             _id: complaint._id,
             upvoteCount: 0,
@@ -1254,7 +1259,9 @@ exports.toggleComplaintVisibility = async (req, res) => {
         });
 
         await complaint.save();
-
+        if (global.notificationService) {
+            await global.notificationService.notifyComplaintToggled(complaint, complaint.isActive, req.user);
+        }
         // Log visibility toggle
         const logger = getLogger(req);
         const action = complaint.isActive ? "COMPLAINT_ENABLE" : "COMPLAINT_DISABLE";
@@ -1474,6 +1481,7 @@ exports.updateComplaint = async (req, res) => {
     }
 };
 
+// In complaintController.js - Find the toggleVote function and add notification trigger
 exports.toggleVote = async (req, res) => {
     try {
         if (["admin", "superadmin"].includes(req.user.role)) {
@@ -1490,8 +1498,13 @@ exports.toggleVote = async (req, res) => {
             return res.status(400).json({ message: "Invalid vote type" });
         }
 
-        // ✅ Get complaint details for logging
-        const complaint = await Complaint.findById(complaintId).select("subject department");
+        // ✅ Get complaint details for logging and notifications
+        const complaint = await Complaint.findById(complaintId).select("subject department user");
+
+        // Check if complaint exists
+        if (!complaint) {
+            return res.status(404).json({ message: "Complaint not found" });
+        }
 
         let vote = await Vote.findOne({ complaintId, userId });
         let upChange = 0;
@@ -1566,6 +1579,17 @@ exports.toggleVote = async (req, res) => {
             downvotesAfter: stats.downvoteCount
         });
 
+        // ✅ TRIGGER NOTIFICATION FOR VOTE
+        // Only send notification if this is a new vote (not remove)
+        if (actionType === "VOTE_ADD" && global.notificationService) {
+            await global.notificationService.notifyVoteAdded(
+                complaint,
+                req.user,
+                type,
+                { upvotes: stats.upvoteCount, downvotes: stats.downvoteCount }
+            );
+        }
+
         try {
             if (global.emitVoteUpdate && typeof global.emitVoteUpdate === 'function') {
                 global.emitVoteUpdate(complaintId, { upvotes: stats.upvoteCount, downvotes: stats.downvoteCount });
@@ -1586,6 +1610,7 @@ exports.toggleVote = async (req, res) => {
     }
 };
 
+// In complaintController.js - Find the addComment function and add notification trigger
 exports.addComment = async (req, res) => {
     try {
         const { text } = req.body;
@@ -1596,8 +1621,12 @@ exports.addComment = async (req, res) => {
             return res.status(400).json({ message: "Comment cannot be empty" });
         }
 
-        // ✅ Get complaint details for logging
-        const complaint = await Complaint.findById(complaintId).select("subject department");
+        // ✅ Get complaint details for logging and notifications
+        const complaint = await Complaint.findById(complaintId).select("subject department user");
+
+        if (!complaint) {
+            return res.status(404).json({ message: "Complaint not found" });
+        }
 
         const comment = await Comment.create({
             complaintId,
@@ -1620,6 +1649,14 @@ exports.addComment = async (req, res) => {
             commentId: comment._id,
             commentText: text.substring(0, 100)
         });
+
+        // ✅ TRIGGER NOTIFICATION FOR COMMENT
+        // Don't notify if user is commenting on their own complaint
+        if (global.notificationService && complaint.user.toString() !== userId.toString()) {
+            // Populate comment with user info
+            const populatedComment = await Comment.findById(comment._id).populate("userId", "name username role");
+            await global.notificationService.notifyCommentAdded(complaint, populatedComment, req.user);
+        }
 
         const updatedStats = await ComplaintStats.findById(complaintId);
 
@@ -1773,7 +1810,11 @@ exports.toggleCommentVisibility = async (req, res) => {
         }
 
         await comment.save({ timestamps: false });
-
+        // After saving comment visibility change:
+        if (global.notificationService) {
+            const complaint = await Complaint.findById(comment.complaintId);
+            await global.notificationService.notifyCommentToggled(comment, comment.isVisible, currentUser, complaint);
+        }
         // ✅ Log visibility change with complaint details
         const logger = getLogger(req);
         const action = comment.isVisible ? "COMMENT_ENABLE" : "COMMENT_DISABLE";
