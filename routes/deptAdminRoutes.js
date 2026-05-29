@@ -7,7 +7,8 @@ const {
     getDepartmentAdmins,
     createDepartmentAdmin,
     updateDepartmentAdmin,
-    toggleDepartmentAdminStatus
+    toggleDepartmentAdminStatus,
+    sendEmailToDeptAdmin // Add this controller function
 } = require("../controllers/deptAdminController");
 
 router.get("/", protect, authorize("admin"), getDepartmentAdmins); // ✅ Changed
@@ -17,5 +18,7 @@ router.post("/add", protect, authorize("admin"), createDepartmentAdmin); // ✅ 
 router.put("/update/:id", protect, authorize("admin"), updateDepartmentAdmin); // ✅ Changed
 
 router.patch("/toggle/:id", protect, authorize("admin"), toggleDepartmentAdminStatus); // ✅ Changed
+
+router.post("/send-email", protect, authorize("admin", "superadmin"), sendEmailToDeptAdmin);  // Add this route
 
 module.exports = router;

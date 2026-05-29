@@ -3,6 +3,7 @@ const User = require("../models/user");
 const Department = require("../models/Department");
 const bcrypt = require("bcryptjs");
 const ActivityLogger = require("../utils/activityLogger");
+const { sendAdminDirectEmail } = require("../services/mailService");
 
 const getLogger = (req) => new ActivityLogger(req);
 
@@ -245,5 +246,60 @@ exports.toggleDepartmentAdminStatus = async (req, res) => {
         res.status(500).json({
             message: "Operation failed"
         });
+    }
+};
+exports.sendEmailToDeptAdmin = async (req, res) => {
+    try {
+        const { adminId, to, subject, message, emailType } = req.body;
+
+        console.log("Send email to department admin request:", { adminId, to, subject, emailType });
+
+        if (!to || !subject || !message) {
+            return res.status(400).json({ message: "Recipient, subject, and message are required" });
+        }
+
+        // Verify department admin exists
+        const admin = await User.findById(adminId).populate("department");
+        if (!admin || admin.role !== "departmentadmin") {
+            return res.status(404).json({ message: "Department admin not found" });
+        }
+
+        // Send email using the mail service
+        await sendAdminDirectEmail(
+            to,
+            admin.name,
+            subject,
+            message,
+            req.user.name || req.user.username,
+            emailType || "general"
+        );
+
+        // Log the email activity
+        try {
+            const logger = getLogger(req);
+            await logger.log(req.user, "EMAIL_SENT", admin, {
+                recipientType: "departmentadmin",
+                recipientId: admin._id,
+                recipientName: admin.name,
+                recipientEmail: to,
+                recipientDepartment: admin.department?.name,
+                emailSubject: subject,
+                emailType: emailType || "general",
+                sentBy: req.user.name || req.user.username,
+                sentByRole: req.user.role
+            });
+        } catch (logError) {
+            console.error("Failed to log email activity:", logError);
+        }
+
+        res.json({
+            message: "Email sent successfully",
+            recipient: admin.name,
+            email: to
+        });
+
+    } catch (error) {
+        console.error("Send email error:", error);
+        res.status(500).json({ message: "Failed to send email: " + error.message });
     }
 };

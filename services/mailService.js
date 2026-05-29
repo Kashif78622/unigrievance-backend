@@ -460,12 +460,87 @@ const sendAdminMessageEmail = async (toEmail, studentName, subject, message, adm
     });
 };
 
-// EXPORT ALL FUNCTIONS
+// Add this to your mailService.js file
+
+const sendAdminDirectEmail = async (toEmail, adminName, subject, message, sentBy, emailType = "general") => {
+    const emailTypeColors = {
+        general: { bg: "#1e3a8a", border: "#1e3a8a", icon: "📢" },
+        administrative: { bg: "#7c3aed", border: "#7c3aed", icon: "👥" },
+        meeting: { bg: "#059669", border: "#059669", icon: "📅" }
+    };
+
+    const typeConfig = emailTypeColors[emailType] || emailTypeColors.general;
+
+    await transporter.sendMail({
+        from: `"UniGrievance System" <${process.env.EMAIL_USER}>`,
+        to: toEmail,
+        subject: `${typeConfig.icon} ${subject}`,
+        html: `
+        <div style="font-family: Arial, sans-serif; background-color: #f4f6f9; padding: 40px 0;">
+            <div style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); overflow: hidden;">
+                
+                <!-- Header -->
+                <div style="background-color: ${typeConfig.bg}; padding: 20px; text-align: center;">
+                    <h2 style="color: #ffffff; margin: 0;">UniGrievance Portal</h2>
+                    <p style="color: #ffffff; margin: 5px 0 0 0; opacity: 0.9;">Official Communication</p>
+                </div>
+
+                <!-- Body -->
+                <div style="padding: 30px; color: #333;">
+                    <h3 style="margin-top: 0; color: ${typeConfig.bg};">Message from Administration</h3>
+                    
+                    <p>
+                        Dear <strong>${adminName}</strong>,
+                    </p>
+
+                    <p>
+                        You have received an official communication from the higher administration.
+                    </p>
+
+                    <!-- Message Box -->
+                    <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid ${typeConfig.border};">
+                        <p style="margin: 0; white-space: pre-line; line-height: 1.6;">${message}</p>
+                    </div>
+
+                    <div style="background-color: #f0fdf4; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                        <strong style="color: #059669;">📌 Important:</strong>
+                        <p style="margin: 5px 0 0 0; font-size: 14px; color: #555;">
+                            Please review this message carefully and take necessary action if required.
+                        </p>
+                    </div>
+
+                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+                        <p style="margin: 5px 0; font-size: 14px;">
+                            <strong>Regards,</strong><br/>
+                            ${sentBy}<br/>
+                            <span style="color: #6b7280;">Higher Administration</span>
+                        </p>
+                        <p style="margin: 5px 0; font-size: 12px; color: #6b7280;">
+                            Sent on: ${new Date().toLocaleString()}
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div style="background-color: #f1f5f9; padding: 15px; text-align: center; font-size: 12px; color: #666;">
+                    <p style="margin: 5px 0;">This is an official communication from the UniGrievance System.</p>
+                    <p style="margin: 5px 0;">Please do not reply to this email. For queries, contact the higher administration.</p>
+                    <p style="margin: 5px 0;">© ${new Date().getFullYear()} UniGrievance System. All rights reserved.</p>
+                </div>
+
+            </div>
+        </div>
+        `
+    });
+};
+
+// Then update your module.exports at the bottom of the file to include the new function:
 module.exports = {
-    sendEmail,              // For student signup
-    sendLoginEmail,         // For admin login
-    sendStudentLoginEmail,  // For student login
-    sendPasswordResetOtp,   // For student password reset
-    sendAdminResetOtpEmail, // For admin password reset
-    sendAdminMessageEmail   // NEW: For admin messages to students
+    sendEmail,                    // For student signup
+    sendLoginEmail,               // For admin login
+    sendStudentLoginEmail,        // For student login
+    sendPasswordResetOtp,         // For student password reset
+    sendAdminResetOtpEmail,       // For admin password reset
+    sendAdminMessageEmail,        // For admin messages to students
+    sendAdminDirectEmail          // For sending emails to admins (make sure this line exists)
 };

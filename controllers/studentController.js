@@ -379,6 +379,7 @@ exports.updateStudentLimited = async (req, res) => {
         res.status(500).json({ message: "Failed to update student" });
     }
 };
+/* SEND EMAIL TO STUDENT */
 exports.sendEmailToStudent = async (req, res) => {
     try {
         const { studentId, to, subject, message, emailType } = req.body;
@@ -402,9 +403,18 @@ exports.sendEmailToStudent = async (req, res) => {
             }
         }
 
-        // Send email using the new mail service
+        // Construct full email address if needed
+        let fullEmail = to;
+        if (!fullEmail.includes('@')) {
+            const SystemSettings = require("../models/SystemSettings");
+            const settings = await SystemSettings.findOne();
+            const domain = settings?.universityDomain || "unigrievance.com";
+            fullEmail = `${to}@${domain}`;
+        }
+
+        // Send email using the mail service
         await sendAdminMessageEmail(
-            to,
+            fullEmail,
             student.name,
             subject,
             message,
@@ -412,20 +422,31 @@ exports.sendEmailToStudent = async (req, res) => {
             emailType || "general"
         );
 
-        // Log the email activity
-        const logger = getLogger(req);
-        await logger.log(req.user, "EMAIL_SENT", student, {
-            recipient: to,
-            subject: subject,
-            emailType: emailType,
-            sentBy: req.user.name || req.user.username,
-            sentAt: new Date()
-        });
+        // Log the email activity - Wrap in try-catch
+        try {
+            const logger = getLogger(req);
+            await logger.log(req.user, "EMAIL_SENT", student, {
+                recipientType: "student",
+                recipientId: student._id,
+                recipientName: student.name,
+                recipientEmail: fullEmail,
+                recipientRegNo: student.username,
+                recipientDepartment: student.department?.name,
+                emailSubject: subject,
+                emailType: emailType || "general",
+                emailMessagePreview: message.substring(0, 100),
+                sentBy: req.user.name || req.user.username,
+                sentByRole: req.user.role,
+                timestamp: new Date().toISOString()
+            });
+        } catch (logError) {
+            console.error("Failed to log email activity:", logError);
+        }
 
         res.json({
             message: "Email sent successfully",
             recipient: student.name,
-            email: to
+            email: fullEmail
         });
 
     } catch (error) {

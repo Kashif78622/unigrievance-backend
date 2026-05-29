@@ -829,7 +829,17 @@ exports.markAsRead = async (req, res) => {
 exports.takeAction = async (req, res) => {
     try {
         const { status, comment, assignTo, isActive } = req.body;
+
+        // Get disabled by info from form data (sent from frontend)
+        // Note: When using multer, these fields come as strings in req.body
+        let disabledByUserId = req.body.disabledByUserId;
+        let disabledByName = req.body.disabledByName;
+        let disabledByRole = req.body.disabledByRole;
+
         const userId = req.user.id;
+        const userRole = req.user.role;
+        const userName = req.user.name || req.user.username;
+
         const complaint = await Complaint.findById(req.params.id);
 
         if (!complaint) {
@@ -840,50 +850,83 @@ exports.takeAction = async (req, res) => {
         const previousActiveStatus = complaint.isActive;
         const mediaFiles = req.files ? req.files.map(file => file.filename) : [];
 
+        // Parse isActive as boolean (it comes as string from FormData)
+        const isActiveBool = isActive === 'true' || isActive === true;
+
         // Handle complaint enable/disable
         let activeStatusChanged = false;
-        if (isActive !== undefined && isActive !== complaint.isActive) {
+        let statusChanged = false;
+        let adminActionAdded = false;
+
+        if (isActive !== undefined && isActiveBool !== complaint.isActive) {
             const wasActive = complaint.isActive;
-            complaint.isActive = isActive;
+            complaint.isActive = isActiveBool;
             activeStatusChanged = true;
 
             // Set disabled by info if disabling
-            if (!isActive) {
-                complaint.disabledBy = req.user.role;
+            if (!isActiveBool) {
+                // Use the sent disabled info from frontend or fallback to current user
+                // Make sure we have valid values
+                if (disabledByUserId && disabledByUserId !== 'undefined' && disabledByUserId !== 'null') {
+                    complaint.disabledByUserId = disabledByUserId;
+                } else {
+                    complaint.disabledByUserId = userId;
+                }
+
+                if (disabledByName && disabledByName !== 'undefined' && disabledByName !== 'null') {
+                    complaint.disabledByName = disabledByName;
+                } else {
+                    complaint.disabledByName = userName;
+                }
+
+                if (disabledByRole && disabledByRole !== 'undefined' && disabledByRole !== 'null') {
+                    complaint.disabledBy = disabledByRole;
+                } else {
+                    complaint.disabledBy = userRole;
+                }
+
                 complaint.disabledAt = new Date();
-                complaint.disabledByUserId = userId;
-                complaint.disabledByName = req.user.name || req.user.username;
+
+                console.log("Disabling complaint with:", {
+                    disabledByUserId: complaint.disabledByUserId,
+                    disabledByName: complaint.disabledByName,
+                    disabledBy: complaint.disabledBy,
+                    disabledAt: complaint.disabledAt
+                });
             } else {
                 // Clear disabled info if enabling
                 complaint.disabledBy = null;
                 complaint.disabledAt = null;
                 complaint.disabledByUserId = null;
                 complaint.disabledByName = null;
+
+                console.log("Enabling complaint - cleared disabled info");
             }
 
             // Record enable/disable event in status history
             complaint.statusHistory.push({
-                status: isActive ? "Enabled" : "Disabled",
+                status: isActiveBool ? "Enabled" : "Disabled",
                 changedBy: userId,
                 changedAt: new Date()
             });
 
             // Log the enable/disable action
             const logger = getLogger(req);
-            const action = isActive ? "COMPLAINT_ENABLE" : "COMPLAINT_DISABLE";
+            const action = isActiveBool ? "COMPLAINT_ENABLE" : "COMPLAINT_DISABLE";
             await logger.log(req.user, action, complaint, {
                 previousStatus: wasActive,
-                newStatus: isActive,
+                newStatus: isActiveBool,
                 complaintSubject: complaint.subject,
-                performedVia: "take_action_modal"
+                performedVia: "take_action_modal",
+                disabledByUser: complaint.disabledByName,
+                disabledByRole: complaint.disabledBy
             });
         }
 
         // Handle status change
-        let statusChanged = false;
         if (status && status !== complaint.status) {
             // Check if trying to change status of disabled complaint
-            if (!complaint.isActive && !isActive) {
+            if (!complaint.isActive && !isActiveBool) {
                 return res.status(400).json({
                     message: "Cannot change status of a disabled complaint. Please enable it first."
                 });
@@ -907,7 +950,6 @@ exports.takeAction = async (req, res) => {
         }
 
         // Handle admin action (comment/media)
-        let adminActionAdded = false;
         if (comment || mediaFiles.length > 0) {
             // Add to admin actions
             complaint.adminActions.push({
@@ -935,17 +977,45 @@ exports.takeAction = async (req, res) => {
         // Save the complaint
         await complaint.save();
 
+        // Update complaint stats if needed (for comment count, etc.)
+        if (comment && !statusChanged) {
+            await ComplaintStats.findOneAndUpdate(
+                { _id: complaint._id },
+                { $inc: { commentCount: 1 } },
+                { upsert: true }
+            );
+        }
+
         // Emit socket events for real-time updates
         try {
             if (statusChanged && global.emitStatusUpdate && typeof global.emitStatusUpdate === 'function') {
                 global.emitStatusUpdate(complaint._id, complaint.status, complaint.statusHistory);
             }
             if (activeStatusChanged && global.emitComplaintUpdate && typeof global.emitComplaintUpdate === 'function') {
-                global.emitComplaintUpdate(complaint._id, { isActive: complaint.isActive });
+                global.emitComplaintUpdate(complaint._id, {
+                    isActive: complaint.isActive,
+                    disabledBy: complaint.disabledBy,
+                    disabledByName: complaint.disabledByName,
+                    disabledByUserId: complaint.disabledByUserId
+                });
             }
         } catch (err) {
             console.error("Socket emit error:", err);
         }
+
+        // Fetch updated complaint with populated fields for response
+        const updatedComplaint = await Complaint.findById(complaint._id)
+            .populate("user", "name profileImage role _id hideProfilePicture isActive anonymousPost department")
+            .populate("department", "name tag isActive")
+            .populate("category", "name isActive");
+
+        // Log the saved complaint data for debugging
+        console.log("Saved complaint disabled info:", {
+            isActive: complaint.isActive,
+            disabledBy: complaint.disabledBy,
+            disabledByName: complaint.disabledByName,
+            disabledByUserId: complaint.disabledByUserId
+        });
 
         res.json({
             message: "Action applied successfully",
@@ -955,8 +1025,10 @@ exports.takeAction = async (req, res) => {
                 isActive: complaint.isActive,
                 disabledBy: complaint.disabledBy,
                 disabledAt: complaint.disabledAt,
-                disabledByName: complaint.disabledByName
-            }
+                disabledByName: complaint.disabledByName,
+                disabledByUserId: complaint.disabledByUserId
+            },
+            fullComplaint: updatedComplaint
         });
 
     } catch (error) {
@@ -1162,11 +1234,13 @@ exports.toggleComplaintVisibility = async (req, res) => {
         complaint.isActive = !complaint.isActive;
 
         if (!complaint.isActive) {
+            // Disabling - set disabled by info
             complaint.disabledBy = userRole;
             complaint.disabledAt = new Date();
             complaint.disabledByUserId = currentUserId;
             complaint.disabledByName = currentUserName;
         } else {
+            // Enabling - clear disabled info
             complaint.disabledBy = null;
             complaint.disabledAt = null;
             complaint.disabledByUserId = null;
@@ -1188,7 +1262,9 @@ exports.toggleComplaintVisibility = async (req, res) => {
             previousStatus: oldStatus,
             newStatus: complaint.isActive,
             complaintStatus: complaint.status,
-            complaintSubject: complaint.subject
+            complaintSubject: complaint.subject,
+            disabledByUser: complaint.disabledByName,
+            disabledByRole: complaint.disabledBy
         });
 
         const updatedComplaint = await Complaint.findById(req.params.id)
@@ -1202,6 +1278,7 @@ exports.toggleComplaintVisibility = async (req, res) => {
             disabledBy: complaint.disabledBy,
             disabledAt: complaint.disabledAt,
             disabledByName: complaint.disabledByName,
+            disabledByUserId: complaint.disabledByUserId,
             complaint: updatedComplaint
         });
 

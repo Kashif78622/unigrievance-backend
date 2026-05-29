@@ -2,6 +2,7 @@
 const User = require("../models/user");
 const bcrypt = require("bcryptjs");
 const ActivityLogger = require("../utils/activityLogger");
+const { sendAdminDirectEmail } = require("../services/mailService"); // Add this import
 
 const getLogger = (req) => new ActivityLogger(req);
 
@@ -234,5 +235,72 @@ exports.toggleAdminStatus = async (req, res) => {
         res.status(500).json({
             message: "Operation failed"
         });
+    }
+};
+exports.sendEmailToAdmin = async (req, res) => {
+    try {
+        const { adminId, to, subject, message, emailType } = req.body;
+
+        console.log("Send email to admin request:", { adminId, to, subject, emailType });
+
+        if (!to || !subject || !message) {
+            return res.status(400).json({ message: "Recipient, subject, and message are required" });
+        }
+
+        // Verify admin exists
+        const admin = await User.findById(adminId);
+        if (!admin || (admin.role !== "admin" && admin.role !== "superadmin")) {
+            return res.status(404).json({ message: "Admin not found" });
+        }
+
+        // Construct full email address if needed
+        let fullEmail = to;
+        if (!fullEmail.includes('@')) {
+            const SystemSettings = require("../models/SystemSettings");
+            const settings = await SystemSettings.findOne();
+            const domain = settings?.universityDomain || "unigrievance.com";
+            fullEmail = `${to}@${domain}`;
+        }
+
+        // Send email using the mail service for admins
+        await sendAdminDirectEmail(
+            fullEmail,
+            admin.name,
+            subject,
+            message,
+            req.user.name || req.user.username,
+            emailType || "general"
+        );
+
+        // Create activity log for email sent - Wrap in try-catch to prevent email failure
+        try {
+            const logger = getLogger(req);
+            await logger.log(req.user, "EMAIL_SENT", admin, {
+                recipientType: "admin",
+                recipientId: admin._id,
+                recipientName: admin.name,
+                recipientEmail: fullEmail,
+                recipientRole: admin.role,
+                emailSubject: subject,
+                emailType: emailType || "general",
+                emailMessagePreview: message.substring(0, 100),
+                sentBy: req.user.name || req.user.username,
+                sentByRole: req.user.role,
+                timestamp: new Date().toISOString()
+            });
+        } catch (logError) {
+            console.error("Failed to log email activity:", logError);
+            // Don't fail the email sending if logging fails
+        }
+
+        res.json({
+            message: "Email sent successfully",
+            recipient: admin.name,
+            email: fullEmail
+        });
+
+    } catch (error) {
+        console.error("Send email error:", error);
+        res.status(500).json({ message: "Failed to send email: " + error.message });
     }
 };

@@ -1,4 +1,3 @@
-// models/ActivityLog.js
 const mongoose = require("mongoose");
 
 const activityLogSchema = new mongoose.Schema({
@@ -66,7 +65,11 @@ const activityLogSchema = new mongoose.Schema({
             "SETTINGS_UPDATE", "SEMESTER_END",
 
             // OTP
-            "OTP_REQUEST", "OTP_VERIFIED"
+            "OTP_REQUEST", "OTP_VERIFIED",
+
+            // Email Actions - ADD THESE
+            "EMAIL_SENT",      // When admin sends email to student or another admin
+            "EMAIL_RECEIVED"   // When user receives email
         ]
     },
 

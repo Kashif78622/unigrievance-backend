@@ -1,17 +1,14 @@
 {
-  "name": "unigrievance-backend",
+  "name": "backend",
   "version": "1.0.0",
-  "description": "UniGrievance Backend API",
-  "main": "server.js",
+  "description": "",
+  "main": "index.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
     "seed:admin": "node scripts/seedAdmin.js",
     "seed:departments": "node scripts/seedDepartments.js",
     "seed:categories": "node scripts/seedCategories.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   },
   "keywords": [],
   "author": "",
